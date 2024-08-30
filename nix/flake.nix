@@ -7,6 +7,36 @@
   };
 
   outputs = { self, nixpkgs, utils }: {
+    nixosModules.default = { config, lib, pkgs, ... }: {
+      options.services.prometheus-healthchecks = {
+        enable = lib.mkEnableOption "prometheus-healthchecks";
+
+        check-uuid-file = lib.mkOption { type = lib.types.str; };
+
+        prometheus-base-url = lib.mkOption {
+          type = lib.types.str;
+          default =
+            let inherit (config.services.prometheus) listenAddress port; in
+            "http://${listenAddress}:${toString port}";
+        };
+      };
+
+      config = lib.mkIf config.services.prometheus-healthchecks.enable {
+        nixpkgs.overlays = [ self.overlays.default ];
+
+        systemd.services.prometheus-healthchecks = {
+          description = "prometheus-healthchecks";
+          serviceConfig.ExecStart =
+            let inherit (config.services.prometheus-healthchecks)
+              check-uuid-file prometheus-base-url;
+            in
+            "${pkgs.prometheus-healthchecks}/bin/prometheus-healthchecks --check-uuid-file ${check-uuid-file} --prometheus-base-url ${prometheus-base-url}";
+          wantedBy = [ "multi-user.target" ];
+        };
+      };
+    };
+    nixosModules.prometheus-healthchecks = self.nixosModules.default;
+
     overlays.default = final: _: {
       prometheus-healthchecks = final.callPackage
         ({ buildGoModule }: buildGoModule {

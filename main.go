@@ -16,7 +16,9 @@ import (
 )
 
 type CLI struct {
-	CheckUUID           string        `short:"u" required:""`
+	CheckUUID           *string `short:"u" required:"" xor:"check"`
+	CheckUUIDFile       []byte  `short:"f" required:"" xor:"check" type:"filecontent"`
+	checkUUID           string
 	HealthchecksBaseURL *url.URL      `short:"b" default:"https://hc-ping.com"`
 	PrometheusBaseURL   *url.URL      `short:"p" required:""`
 	Timeout             time.Duration `short:"t" default:"30s"`
@@ -67,7 +69,7 @@ func (cli CLI) ping(ctx context.Context, name string, method string, url *url.UR
 func (cli CLI) pingSuccess(ctx context.Context) {
 	slog.Info("success")
 
-	url := cli.HealthchecksBaseURL.JoinPath(cli.CheckUUID)
+	url := cli.HealthchecksBaseURL.JoinPath(cli.checkUUID)
 	cli.ping(ctx, "success", http.MethodGet, url, nil)
 }
 
@@ -92,7 +94,7 @@ func failureMsg(msg string, args ...any) string {
 func (cli CLI) pingFailure(ctx context.Context, msg string, args ...any) {
 	slog.Error(msg, args...)
 
-	url := cli.HealthchecksBaseURL.JoinPath(cli.CheckUUID, "fail")
+	url := cli.HealthchecksBaseURL.JoinPath(cli.checkUUID, "fail")
 	body := strings.NewReader(failureMsg(msg, args...))
 	cli.ping(ctx, "failure", http.MethodPost, url, body)
 }
@@ -162,6 +164,13 @@ func (cli CLI) check() {
 func main() {
 	var cli CLI
 	kong.Parse(&cli)
+
+	if checkUUID := cli.CheckUUID; checkUUID != nil {
+		cli.checkUUID = *checkUUID
+	} else {
+		// safe due to xor
+		cli.checkUUID = strings.TrimSpace(string(cli.CheckUUIDFile))
+	}
 
 	cli.check()
 	for range time.Tick(cli.Interval) {
